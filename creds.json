@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "gajobot-oficial",
+  "private_key_id": "ed54b14a480714c700ea0a9a80c7167a39072767",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC0E3BJLuLIIZ5a\nqGDY4tK8Z5rbI99OvzRV1piAyGwk9UXmsQfAGNjlBffwfx+G/IddosV4NdnlqlWf\nN76g5nyzLz2xXQzPyumdwffllnmdNZf1nUjO9gdwS/JrONzF75G30zXpRlwDw9F/\nK8XYwUf3HNMIreBk27k5wzERJyuMUkmmunM/X9FQRvNs3XNwfmDlBC+Lxy1FpU2J\nAt4yd8EHEb268Ri+pnOMtFzAzlfBQbqqDk7NLQrnMK9W1Dbl915lQCRLZqnomZ80\nbQFnU2aE9i/cEfZLAx6RUTkCIhj2wNqean0aO87gBkCT0JnpB5FTJQ4U04895biP\n+iWASPGvAgMBAAECggEAQX80fxnTmJFJxJWrrBdMKQTR+VTh2wWGppYIIAdF9mdT\nxmWreP5QnXR/SvUh5XoiTjdu9Zs4puU+gUvIRUOwJYhQOxuqFkYqlJvBa7tAfqLI\no6hSnBw2dmzZPpCPFFtft+nVmQRjYWcu4r9sFbuvTj0osOZ1UJnulAjf5upFV6LW\nO7LwsUUpu5jkE2aPCBaiO+PkRhqvXhbk2Wp08vKrPocmcvSB/RgErlLQ4FY1+svd\nVnb63pflbVVvwu2FWQMf4QzYttxdR090LDmi/hnhXFJhbAVV6Q1zyrJ2ImG4ByCI\nQUG46KCIkeHSI7pfznsQYSn99kugCPnHBpaaZILB6QKBgQDaKIQQdtDgh3sq3R4Q\n8hhVl/fFC5HXMfkFEfEazGPhNRnDoo2pwh/z8gGaKRcFHCRY+GE47L8xHlB7s2D/\nJ7SWsJSi/XqVCbkvaJe+tFW7+iyXVjPZy/uaSc3aYlGV2b0pwnJrzOTxjMVlmlvM\npJVH3oG6R1PdMPcivsLweAcd4wKBgQDTT9kC86AwNw2I6lyQooe911+PbzJ+9Ec+\n2Y8crviwttNP6hGm7C38K1g+nKqHT9rOK9iyBj7rHa1cATbsMfFdQ3z5EJvjK9Qw\nOKCXV0Eo3rWk9H+4vhljm5y/xsTE9aMSwMbNoMrDpzCd6fQXt0PUMrmcVb7ywAyU\nt8cK/EfmxQKBgQDFIV9U0Uil20a80NneTiUXEx9c+rtqTUnL/w5zPMX0Ntt1IGoK\nP9RHxyMTfpXClE9z5d1UZvnNFKt9W/YGGobgs+db8NjX29VutYCJXsMp/UJV7hsk\nb2KHZLGS6Mz4L6zzEzX5m0g1zRKCYR0aqo4KR1HKVbG+agSnbOESEiO8KQKBgGVE\n7wurFioFOEdViecG/WbNwM5MzDZre3lzalKkyCpoc/zogG0u4xrm6vOWwWL3sjT8\nbm1i8ORc5KgjLN8lUDcSEOKMQykr6BT0DoJ5HpEnqoXTZyJyeFh0SzrdV4/M6Moj\n+SKy3HnHtlT3ujNjcO5RIQL7VPehcmYTbSCmpw7BAoGBAINJ3A6R4eyoRWRZABbg\nmrhnYCf2bn4D5JAxLPQi1kJ5ZF0d0QgXtnaBslaayV99aqqni+EBpLn/b7XfT5nB\nkjupCp6qyBHk7IH/EHQTN8YQwQexGUkV88cW/5UbGQxSNfkbj0YvrAt7Jvfkc80o\n/3BD5yt4rqTjbGtKKTZiiWZ4\n-----END PRIVATE KEY-----\n",
+  "client_email": "gajobot-admin@gajobot-oficial.iam.gserviceaccount.com",
+  "client_id": "100043914845643087548",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/gajobot-admin%40gajobot-oficial.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
