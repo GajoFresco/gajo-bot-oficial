@@ -21,28 +21,27 @@ def obtener_datos_vitaminados(mensaje_recibido):
         hoja = client.open_by_key(SHEET_ID).sheet1
         datos = hoja.get_all_records()
         
-        mensaje_clean = mensaje_recibido.upper()
-        print(f"🔎 DEBUG - Buscando coincidencia para: '{mensaje_clean}'")
+        # Limpiamos lo que mandó el cliente
+        msg = mensaje_recibido.upper().strip()
+        print(f"🔎 DEBUG - Buscando '{msg}' en el Excel...")
 
         for item in datos:
-            url_qr = str(item.get("ID_Unico_QR", ""))
-            # Extraemos el ID del link (ej: G-001-X8P)
-            if "Gajo%20" in url_qr:
-                id_esperado = url_qr.split("Gajo%20")[-1].upper()
-            else:
-                id_esperado = url_qr.upper()
+            # Sacamos el ID de la columna A (ej: G-001-X8P)
+            raw_id = str(item.get("ID_Unico_QR", ""))
+            # Si es un link de wa.me, cortamos para quedarnos con el final
+            id_db = raw_id.split("Gajo%20")[-1].upper().strip() if "Gajo%20" in raw_id else raw_id.upper().strip()
 
-            if id_esperado and id_esperado in mensaje_clean:
-                print(f"✅ DEBUG - ¡Match encontrado! Vaso #{item.get('Numero_Vaso')}")
+            if id_db in msg:
+                print(f"✅ DEBUG - ¡Match! Vaso #{item.get('Numero_Vaso')}")
                 return item
         
-        print("❓ DEBUG - No se encontró el ID en el Excel.")
+        print("❓ DEBUG - No hubo match en el Excel.")
         return None
     except Exception as e:
-        print(f"❌ DEBUG - Error en Sheets: {e}")
+        print(f"❌ DEBUG - Error Sheets: {e}")
         return None
 
-def enviar_wa_texto(mensaje, numero):
+def enviar_wa(mensaje, numero):
     url = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
     headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
     payload = {
@@ -52,19 +51,9 @@ def enviar_wa_texto(mensaje, numero):
         "text": {"body": mensaje}
     }
     r = requests.post(url, headers=headers, json=payload)
-    print(f"📤 DEBUG - Status Envío: {r.status_code}")
+    print(f"📤 DEBUG - Meta Status: {r.status_code}")
     if r.status_code != 200:
-        print(f"❌ DEBUG - Error de Meta: {r.text}")
-
-def enviar_menu_media(numero):
-    if not MENU_IMAGE_URL: return
-    url = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
-    headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
-    payload = {
-        "messaging_product": "whatsapp", "to": numero,
-        "type": "image", "image": {"link": MENU_IMAGE_URL}
-    }
-    requests.post(url, headers=headers, json=payload)
+        print(f"❌ DEBUG - Error Meta: {r.text}")
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
@@ -75,23 +64,24 @@ def webhook():
 
     if request.method == 'POST':
         data = request.get_json()
+        
+        # --- EL SENSOR MAESTRO ---
+        print(f"\n--- 📥 NUEVO EVENTO ---")
+        
         try:
-            if data.get('entry') and data['entry'][0].get('changes') and \
-               data['entry'][0]['changes'][0]['value'].get('messages'):
-                
+            # Revisamos si el JSON trae mensajes
+            if 'messages' in data['entry'][0]['changes'][0]['value']:
                 msg_obj = data['entry'][0]['changes'][0]['value']['messages'][0]
                 num_cliente = msg_obj['from']
                 
                 if 'text' in msg_obj:
-                    msg_txt = msg_obj['text']['body'].strip()
-                    print(f"\n📩 DEBUG - Mensaje de {num_cliente}: {msg_txt}")
+                    msg_txt = msg_obj['text']['body']
+                    print(f"📩 MENSAJE RECIBIDO de {num_cliente}: {msg_txt}")
                     
                     info = obtener_datos_vitaminados(msg_txt)
                     
                     if info:
-                        v = info.get('Numero_Vaso')
-                        c = info.get('Codigo_Secreto')
-                        m = info.get('Mantra_Asignado')
+                        v, c, m = info.get('Numero_Vaso'), info.get('Codigo_Secreto'), info.get('Mantra_Asignado')
                         header = "¿Qué Gajo eres hoy? 🍹✨\n\n"
                         
                         if str(v) in ["43", "100"]:
@@ -99,13 +89,15 @@ def webhook():
                         else:
                             res = f"{header}¡Eres el **Gajo #{v}**!\n\n*Mantra: {m}*\n\nFrescura a domicilio ¡pide ahora! 🍓"
                         
-                        enviar_wa_texto(res, num_cliente)
-                        enviar_menu_media(num_cliente)
+                        enviar_wa(res, num_cliente)
                     else:
-                        fallback = "¡Huy! 🕵️‍♂️ Ese Gajo no está en la canasta o vienes del futuro. ⏳\n¡Escanea un QR real!"
-                        enviar_wa_texto(fallback, num_cliente)
+                        enviar_wa("¡Huy! 🕵️‍♂️ Ese Gajo no está en la canasta. ¿Seguro que escaneaste bien? 🍋", num_cliente)
+            
+            elif 'statuses' in data['entry'][0]['changes'][0]['value']:
+                print("ℹ️ DEBUG - Notificación de estado (Enviado/Leído). Ignorando...")
+
         except Exception as e:
-            print(f"❌ DEBUG - Error General: {e}")
+            print(f"❌ DEBUG - Error procesando: {e}")
         
         return "EVENT_RECEIVED", 200
     return "OK", 200
