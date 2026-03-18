@@ -3,7 +3,6 @@ import requests
 import gspread
 from flask import Flask, request
 from google.oauth2.service_account import Credentials
-import json
 
 app = Flask(__name__)
 
@@ -14,8 +13,6 @@ SHEET_ID = os.environ.get('SHEET_ID')
 MENU_IMAGE_URL = os.environ.get('MENU_IMAGE_URL')
 WEBHOOK_TOKEN = "GajoBot2026"
 
-# Memoria temporal para recordar quién está en proceso de registro
-# { "numero_telefono": "ID_DEL_QR" }
 esperando_nombre = {}
 
 def conectar_sheet():
@@ -29,42 +26,40 @@ def buscar_id_qr(mensaje):
         hoja = conectar_sheet()
         datos = hoja.get_all_records()
         msg = mensaje.upper().strip()
-        
-        for i, item in enumerate(datos, start=2): # start=2 por el encabezado
+        for i, item in enumerate(datos, start=2):
             raw_id = str(item.get("ID_Unico_QR", ""))
             id_db = raw_id.split("Gajo%20")[-1].upper().strip() if "Gajo%20" in raw_id else raw_id.upper().strip()
-            
             if id_db in msg:
-                item['fila_index'] = i # Guardamos la fila para saber dónde escribir luego
+                item['fila_index'] = i
                 return item
         return None
     except Exception as e:
         print(f"❌ Error buscando ID: {e}")
         return None
 
+def usuario_ya_registrado(telefono):
+    try:
+        hoja = conectar_sheet()
+        datos = hoja.get_all_records()
+        for item in datos:
+            if str(item.get("Telefono_Cliente")) == str(telefono) and item.get("Nombre_Cliente"):
+                return True
+        return False
+    except:
+        return False
+
 def registrar_datos_cliente(fila, nombre, telefono):
     try:
         hoja = conectar_sheet()
-        # Columna E (5) es Nombre, Columna F (6) es Telefono
-        hoja.update_cell(fila, 5, nombre)
-        hoja.update_cell(fila, 6, telefono)
-        # Opcional: Cambiar estatus a 'Ocupado'
-        hoja.update_cell(fila, 4, "Registrado")
-        print(f"✅ Datos guardados en fila {fila}")
+        hoja.update_cell(fila, 5, nombre) # Columna E
+        hoja.update_cell(fila, 6, telefono) # Columna F
     except Exception as e:
-        print(f"❌ Error guardando datos: {e}")
+        print(f"❌ Error guardando: {e}")
 
 def enviar_wa(mensaje, numero):
     url = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
     headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
     payload = {"messaging_product": "whatsapp", "to": numero, "type": "text", "text": {"body": mensaje}}
-    requests.post(url, headers=headers, json=payload)
-
-def enviar_menu(numero):
-    if not MENU_IMAGE_URL: return
-    url = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
-    headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
-    payload = {"messaging_product": "whatsapp", "to": numero, "type": "image", "image": {"link": MENU_IMAGE_URL}}
     requests.post(url, headers=headers, json=payload)
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -81,36 +76,36 @@ def webhook():
                 msg_obj = data['entry'][0]['changes'][0]['value']['messages'][0]
                 num_cliente = msg_obj['from']
                 texto = msg_obj['text']['body'].strip()
+                texto_upper = texto.upper()
 
-                # CASO A: El cliente está respondiendo su nombre
+                # 1. ¿Estamos esperando un nombre?
                 if num_cliente in esperando_nombre:
-                    fila_a_editar = esperando_nombre[num_cliente]
-                    registrar_datos_cliente(fila_a_editar, texto, num_cliente)
-                    
-                    respuesta = f"¡Mucho gusto, {texto}! ✨ Ya registré tu Gajo. Aquí tienes nuestro menú de autor. ¿Qué se te antoja hoy? 🍹"
-                    enviar_wa(respuesta, num_cliente)
-                    enviar_menu(num_cliente)
-                    
-                    del esperando_nombre[num_cliente] # Limpiamos la memoria
+                    fila = esperando_nombre[num_cliente]
+                    registrar_datos_cliente(fila, texto, num_cliente)
+                    enviar_wa(f"¡Mucho gusto, {texto}! ✨ Ya te registré. En un momento Luis te atenderá personalmente. 🍹", num_cliente)
+                    del esperando_nombre[num_cliente]
+                    return "OK", 200
 
-                # CASO B: Es un escaneo de QR (ID)
-                else:
-                    info = buscar_id_qr(texto)
-                    if info:
-                        v, m, fila = info.get('Numero_Vaso'), info.get('Mantra_Asignado'), info.get('fila_index')
-                        
-                        # Si ya tiene nombre, no preguntamos de nuevo
-                        if info.get('Nombre_Cliente'):
-                            saludo = f"¡Hola de nuevo, {info.get('Nombre_Cliente')}! 🍹\nEres el Gajo #{v}.\n\n*Mantra: {m}*"
-                            enviar_wa(saludo, num_cliente)
-                            enviar_menu(num_cliente)
-                        else:
-                            # Iniciamos proceso de registro
-                            esperando_nombre[num_cliente] = fila
-                            bienvenida = f"¿Qué Gajo eres hoy? 🍹✨\n¡Eres el **Gajo #{v}**!\n\n*Mantra: {m}*\n\nPara enviarte frescura a domicilio, ¿cómo te llamas? ✍️"
-                            enviar_wa(bienvenida, num_cliente)
+                # 2. ¿Es un ID de QR válido?
+                info = buscar_id_qr(texto)
+                if info:
+                    v, m, fila = info.get('Numero_Vaso'), info.get('Mantra_Asignado'), info.get('fila_index')
+                    if info.get('Nombre_Cliente'):
+                        enviar_wa(f"¡Hola de nuevo! 🍹 Eres el Gajo #{v}.\n\n*Mantra: {m}*", num_cliente)
                     else:
-                        enviar_wa("¡Huy! 🕵️‍♂️ Ese Gajo no está en la canasta o vienes del futuro. ⏳", num_cliente)
+                        esperando_nombre[num_cliente] = fila
+                        enviar_wa(f"¡Eres el **Gajo #{v}**! 🍹\n\n*{m}*\n\n¿Cómo te llamas para registrar tu pedido? ✍️", num_cliente)
+                    return "OK", 200
+
+                # 3. ¿Parece un intento de código (empieza con G-) pero no es válido?
+                if texto_upper.startswith("G-"):
+                    enviar_wa("¡Huy! 🕵️‍♂️ Ese código no está en nuestra canasta. O es un error de dedo o vienes del futuro. ⏳", num_cliente)
+                    return "OK", 200
+
+                # 4. SILENCIO TÁCTICO: Si ya está registrado y manda cualquier otra cosa
+                if usuario_ya_registrado(num_cliente):
+                    print(f"🤫 Usuario {num_cliente} ya registrado. Bot en silencio para que Luis atienda.")
+                    return "OK", 200
 
         except Exception as e:
             print(f"❌ Error: {e}")
