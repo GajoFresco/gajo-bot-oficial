@@ -16,103 +16,38 @@ SHEET_ID = os.environ.get('SHEET_ID')
 WEBHOOK_TOKEN = "GajoBot2026"
 
 # --- 📗 CONEXIÓN CON GOOGLE SHEETS ---
-def obtener_datos_vitaminados(id_qr):
+
+def obtener_datos_vitaminados(mensaje_recibido):
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        # Usa el archivo de credenciales de la cuenta recuperada
         creds = Credentials.from_service_account_file('creds.json', scopes=scope)
         client = gspread.authorize(creds)
         hoja = client.open_by_key(SHEET_ID).sheet1
-        
-        # Leemos solo las 4 columnas clave (A, B, C, D)
         datos = hoja.get_all_records()
-        print(f"DEBUG - Filas leídas: {len(datos)}")
         
+        # Limpiamos el mensaje para buscar solo el ID (ej: G-001-X8P)
         for item in datos:
-            if str(item.get("ID_Unico_QR")).strip() == str(id_qr).strip():
-                return item # Devuelve [ID, Vaso, Codigo, Frase]
+            # Sacamos el ID de la columna A (que en tu foto es un link largo)
+            # Vamos a buscar si el ID está contenido en el mensaje del cliente
+            id_esperado = str(item.get("ID_Unico_QR")).split("Gajo%20")[-1] # Extrae el ID del link
+            
+            if id_esperado in mensaje_recibido:
+                return item
         return None
     except Exception as e:
-        print(f"❌ Error en Google Sheets: {e}")
+        print(f"❌ Error en Sheets: {e}")
         return None
 
-# --- 💬 FUNCIÓN PARA ENVIAR WHATSAPP (TEXTO) ---
-def enviar_wa_texto(mensaje, numero):
-    url = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
-    headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": numero,
-        "type": "text",
-        "text": {"body": mensaje}
-    }
-    requests.post(url, headers=headers, json=payload)
+# --- LÓGICA DE RESPUESTA EN EL WEBHOOK ---
+# (Dentro del bloque 'if info:')
+v = info.get('Numero_Vaso')
+c = info.get('Codigo_Secreto')
+m = info.get('Mantra_Asignado') # Usamos el nombre exacto de tu columna H
 
-# --- 💬 FUNCIÓN PARA ENVIAR EL MENÚ (IMAGEN) ---
-def enviar_menu_media(numero):
-    url = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
-    headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": numero,
-        "type": "image",
-        "image": {"link": MENU_IMAGE_URL}
-    }
-    r = requests.post(url, headers=headers, json=payload)
-    print(f"DEBUG - Status Envío Media: {r.status_code}")
+header = "¿Qué Gajo eres hoy? 🍹✨ ¡Descúbrelo aquí!\n\n"
 
-# --- 🌐 EL WEBHOOK: Lógica de Descubrimiento ---
-@app.route('/webhook', methods=['GET', 'POST'])
-def webhook():
-    if request.method == 'GET':
-        if request.args.get("hub.verify_token") == WEBHOOK_TOKEN:
-            return request.args.get("hub.challenge")
-        return "Error", 403
-
-    if request.method == 'POST':
-        data = request.get_json()
-        print(f"\n--- 📥 EVENTO RECIBIDO ---")
-        try:
-            if data.get('entry') and data['entry'][0].get('changes') and \
-               data['entry'][0]['changes'][0]['value'].get('messages'):
-                msg_obj = data['entry'][0]['changes'][0]['value']['messages'][0]
-                num_cliente = msg_obj['from']
-                
-                if 'text' in msg_obj:
-                    msg_txt = msg_obj['text']['body'].strip()
-                    print(f"📝 Mensaje: {msg_txt}")
-                    
-                    # Llamamos a la base vitaminada
-                    info = obtener_datos_vitaminados(msg_txt)
-                    
-                    if info:
-                        v = info.get('Numero_Vaso')
-                        c = info.get('Codigo_Secreto')
-                        f = info.get('Frase_Gajo')
-                        
-                        header = "¿Qué Gajo eres hoy? 🍹✨ ¡Descúbrelo aquí!\n\n"
-                        
-                        if v in [43, 100]:
-                            # --- FLUJO DE GANADOR ---
-                            respuesta = f"{header}¡Felicidades! 🎉 Eres un **Gajo Premiado (#{v})**.\n\nTu código de regalo es: **{c}** 🎁\nReenvía este código aquí mismo para agendar tu bebida gratis.\n\nFrescura a domicilio ¡pide ahora! 🚚🍓"
-                        else:
-                            # --- FLUJO NORMAL ---
-                            respuesta = f"{header}¡Eres el **Gajo #{v}**!\n\n*{f}*\n\nFrescura a domicilio ¡pide ahora! 🚚🍓"
-                        
-                        # Primero enviamos el texto de descubrimiento
-                        enviar_wa_texto(respuesta, num_cliente)
-                        # E inmediatamente enviamos la imagen del menú
-                        enviar_menu_media(num_cliente)
-                    else:
-                        # --- FALLBACK: CÓDIGO DEL FUTURO ---
-                        fallback = "¡Huy! 🕵️‍♂️ Ese código no está en nuestra canasta. O es un error de dedo, o vienes del futuro y ese Gajo todavía no se corta. 🍋⏳\n\n¡Escanea un QR real para ganar premios!"
-                        enviar_wa_texto(fallback, num_cliente)
-                else:
-                    print("ℹ️ Evento sin mensaje de texto.")
-        except Exception as e:
-            print(f"❌ ERROR: {e}")
-        return "EVENT_RECEIVED", 200
-    return "OK", 200
-
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+# Si el código secreto existe y es el premiado (puedes ajustarlo por ID o por Vaso)
+if v in [43, 100]: 
+    respuesta = f"{header}¡Felicidades! 🎉 Eres un **Gajo Premiado (#{v})**.\n\nTu código de regalo es: **{c}** 🎁\nReenvía este código para tu bebida gratis.\n\nFrescura a domicilio ¡pide ahora! 🍓"
+else:
+    respuesta = f"{header}¡Eres el **Gajo #{v}**!\n\n*Mantra del día: {m}*\n\nFrescura a domicilio ¡pide ahora! 🍓"
