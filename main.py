@@ -15,8 +15,6 @@ WEBHOOK_TOKEN = "GajoBot2026"
 
 esperando_nombre = {}
 
-# --- 📗 FUNCIONES DE BASE DE DATOS ---
-
 def conectar_sheet(nombre_hoja="Hoja 1"):
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -69,7 +67,6 @@ def enviar_wa(mensaje, numero):
     payload = {"messaging_product": "whatsapp", "to": numero, "type": "text", "text": {"body": mensaje}}
     requests.post(url, headers=headers, json=payload)
 
-# --- 🚀 WEBHOOK ---
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
     if request.method == 'GET':
@@ -92,7 +89,7 @@ def webhook():
                     valor = esperando_nombre[num_cliente]
                     if valor == "PROSPECTO":
                         registrar_prospecto_nuevo(texto, num_cliente)
-                        enviar_wa(f"¡Listo, {texto}! Ya te tengo en mi lista. 📝 En un momento Luis te atenderá. 🍹", num_cliente)
+                        enviar_wa(f"¡Listo, {texto}! Ya te registré. 📝 En un momento Luis te atenderá. 🍹", num_cliente)
                     else:
                         hoja_qr = conectar_sheet("Hoja 1")
                         hoja_qr.update_cell(valor, 5, texto)
