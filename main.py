@@ -30,7 +30,7 @@ def anotar_log(telefono, nombre, emisor, mensaje):
     try:
         h_logs = conectar_sheet("Chat_Logs")
         if h_logs:
-            ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+            ahora = (datetime.datetime.now() - datetime.timedelta(hours=6)).strftime("%d/%m/%Y %H:%M:%S")
             h_logs.append_row([ahora, str(telefono), nombre, emisor, mensaje])
     except: print("❌ Error anotando log")
 
@@ -85,7 +85,7 @@ def webhook():
 
                 num = msg_obj['from']
                 texto = msg_obj.get('text', {}).get('body', "").strip()
-                ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                ahora = (datetime.datetime.now() - datetime.timedelta(hours=6)).strftime("%d/%m/%Y %H:%M:%S")
 
                 # Identificar usuario para el log
                 fila_qr = buscar_fila_por_telefono(num, "Hoja 1")
