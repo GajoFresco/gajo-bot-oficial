@@ -1,98 +1,117 @@
 import streamlit as st
-import requests
 import pandas as pd
+import requests
+import os
+import time
 import gspread
 from google.oauth2.service_account import Credentials
-import time
 
-# --- CONFIGURACIÓN ---
+# --- ⚙️ CONFIGURACIÓN ---
 TOKEN = st.secrets["WHATSAPP_TOKEN"]
 PHONE_ID = st.secrets["PHONE_ID"]
 SHEET_ID = st.secrets["SHEET_ID"]
 
+# --- 📗 CONEXIÓN A GOOGLE SHEETS ---
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
 client = gspread.authorize(creds)
-hoja = client.open_by_key(SHEET_ID).sheet1
 
 st.set_page_config(page_title="Gajo! Manager", page_icon="🍹", layout="wide")
 
-def cargar_datos():
-    # Cargamos todo el Excel
-    datos = hoja.get_all_records()
-    return pd.DataFrame(datos)
+# Estilos personalizados para el chat
+st.markdown("""
+    <style>
+    .stChatMessage { border-radius: 15px; margin-bottom: 10px; }
+    </style>
+    """, unsafe_allow_html=True)
 
-df = cargar_datos()
+# --- 📊 FUNCIONES DE CARGA ---
+def cargar_pedidos():
+    hoja = client.open_by_key(SHEET_ID).worksheet("Hoja 1")
+    return pd.DataFrame(hoja.get_all_records())
 
+def cargar_prospectos():
+    try:
+        hoja = client.open_by_key(SHEET_ID).worksheet("Prospectos")
+        return pd.DataFrame(hoja.get_all_records())
+    except:
+        return pd.DataFrame()
+
+# --- 🖥️ INTERFAZ PRINCIPAL ---
 st.title("🍹 Gajo! Central de Mensajes")
 
-if not df.empty:
-    # Identificamos las columnas por posición para evitar errores de nombre
-    # Asumimos: Col E (4) es Nombre, Col F (5) es Teléfono, Col I (8) es Mensaje
-    cols = df.columns.tolist()
-    
-    # Limpieza de datos
-    df['Nombre_Cliente'] = df.iloc[:, 4].replace('', 'Nuevo Cliente') # Columna E
-    df['Telefono_Cliente'] = df.iloc[:, 5].astype(str)               # Columna F
-    
-    # Etiqueta para el menú
-    df['Etiqueta'] = df['Telefono_Cliente'] + " (" + df['Nombre_Cliente'] + ")"
-    
-    with st.sidebar:
-        st.header("📋 Pedidos Activos")
-        # Invertimos para ver los últimos registros primero
-        opciones = df[df['Estatus'] == 'Registrado']['Etiqueta'].unique().tolist()[::-1]
-        if not opciones:
-            st.write("No hay pedidos registrados aún.")
-            cliente_sel_etiqueta = None
-        else:
-            cliente_sel_etiqueta = st.selectbox("Selecciona un chat", opciones)
+# Pestañas para separar Pedidos de Prospectos
+tab1, tab2 = st.tabs(["🛒 Pedidos (QR)", "👥 Prospectos (Manual)"])
+
+# --- TAB 1: PEDIDOS QR ---
+with tab1:
+    df_pedidos = cargar_pedidos()
+    if not df_pedidos.empty:
+        # Limpiamos y preparamos datos
+        df_pedidos['Etiqueta'] = df_pedidos['Telefono_Cliente'].astype(str) + " (" + df_pedidos['Nombre_Cliente'] + ")"
         
-        st.divider()
-        if st.button("🔄 Actualizar"):
-            st.rerun()
-
-    if cliente_sel_etiqueta:
-        tel_seleccionado = str(cliente_sel_etiqueta.split(" (")[0])
+        with st.sidebar:
+            st.header("📲 Chat Activo")
+            cliente_sel = st.selectbox("Selecciona un pedido:", df_pedidos['Etiqueta'].unique().tolist()[::-1], key="sel_qr")
         
-        # Filtramos la fila de este cliente
-        datos_cliente = df[df['Telefono_Cliente'] == tel_seleccionado].iloc[-1]
+        tel_actual = cliente_sel.split(" (")[0]
+        datos_c = df_pedidos[df_pedidos['Telefono_Cliente'].astype(str) == tel_actual].iloc[-1]
 
-        st.subheader(f"Chat con: {cliente_sel_etiqueta}")
-
-        # --- MOSTRAR EL MENSAJE ESPECÍFICO ---
-        # Buscamos en la Columna I (índice 8 en 0-based)
-        mensaje_actual = datos_cliente.iloc[8] # Columna I
+        st.subheader(f"Conversación con {datos_c['Nombre_Cliente']}")
         
-        with st.chat_message("user"):
-            st.write(f"**Cliente dice:** {mensaje_actual}")
-            if len(datos_cliente) > 9: # Si existe la columna J
-                st.caption(f"Hora: {datos_cliente.iloc[9]}")
+        # VISUALIZACIÓN DE CHAT ORDINARIO (Burbujas)
+        with st.container(border=True):
+            # Mensaje del cliente (Lo que está en la Columna I)
+            with st.chat_message("user", avatar="👤"):
+                st.write(f"**Cliente:** {datos_c['Mensaje_Cliente']}")
+                st.caption(f"Enviado: {datos_c.get('Timestamp', '---')}")
+            
+            # Nota: Si quisieras ver TODO el historial, tendríamos que guardar cada mensaje en una fila nueva.
+            # Por ahora, muestra el último mensaje registrado en ese vaso.
 
-        # --- ENVIAR RESPUESTA ---
-        st.write("---")
-        respuesta = st.text_input("Tu respuesta:", placeholder="Ej: ¡Va para allá! 🛵")
+        # --- CAJA DE RESPUESTA ---
+        respuesta = st.chat_input("Escribe tu respuesta para el pedido...", key="input_qr")
+        if respuesta:
+            url = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
+            headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+            payload = {"messaging_product": "whatsapp", "to": tel_actual, "type": "text", "text": {"body": respuesta}}
+            res = requests.post(url, headers=headers, json=payload)
+            if res.status_code == 200:
+                st.success("Mensaje enviado")
+                st.rerun()
+
+# --- TAB 2: PROSPECTOS ---
+with tab2:
+    df_pros = cargar_prospectos()
+    if not df_pros.empty:
+        df_pros['Etiqueta'] = df_pros['Telefono'].astype(str) + " (" + df_pros['Nombre'] + ")"
         
-        if st.button("🚀 Enviar a WhatsApp"):
-            if respuesta:
-                url = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
-                headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
-                payload = {
-                    "messaging_product": "whatsapp",
-                    "to": tel_seleccionado,
-                    "type": "text",
-                    "text": {"body": respuesta}
-                }
-                res = requests.post(url, headers=headers, json=payload)
-                if res.status_code == 200:
-                    st.success("¡Mensaje enviado!")
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.error("Error al enviar")
-else:
-    st.info("Esperando que caiga el primer Gajo... 🍋")
+        cliente_p = st.selectbox("Selecciona un prospecto:", df_pros['Etiqueta'].unique().tolist()[::-1], key="sel_p")
+        
+        tel_p = cliente_p.split(" (")[0]
+        # Aquí sí podemos filtrar por historial porque append_row crea filas nuevas
+        historial_p = df_pros[df_pros['Telefono'].astype(str) == tel_p]
 
-# Auto-refresh cada 20 segundos para no saturar Google
-time.sleep(20)
+        st.subheader(f"Atención a {cliente_p}")
+
+        with st.container(border=True):
+            for _, fila in historial_p.iterrows():
+                with st.chat_message("user", avatar="✨"):
+                    st.write(f"{fila['Mensaje']}")
+                    st.caption(f"Hora: {fila['Hora']}")
+
+        respuesta_p = st.chat_input("Responder a prospecto...", key="input_p")
+        if respuesta_p:
+            url = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
+            headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+            payload = {"messaging_product": "whatsapp", "to": tel_p, "type": "text", "text": {"body": respuesta_p}}
+            res = requests.post(url, headers=headers, json=payload)
+            if res.status_code == 200:
+                st.success("Mensaje enviado")
+                st.rerun()
+    else:
+        st.info("No hay prospectos registrados todavía.")
+
+# --- 🔄 AUTO-REFRESH ---
+time.sleep(15)
 st.rerun()
