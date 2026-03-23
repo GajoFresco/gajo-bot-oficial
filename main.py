@@ -30,6 +30,7 @@ def anotar_log(telefono, nombre, emisor, mensaje):
     try:
         h_logs = conectar_sheet("Chat_Logs")
         if h_logs:
+            # Ajuste de hora México (-6 horas)
             ahora = (datetime.datetime.now() - datetime.timedelta(hours=6)).strftime("%d/%m/%Y %H:%M:%S")
             h_logs.append_row([ahora, str(telefono), nombre, emisor, mensaje])
     except: print("❌ Error anotando log")
@@ -75,7 +76,7 @@ def webhook():
         try:
             if 'messages' in data['entry'][0]['changes'][0]['value']:
                 msg_obj = data['entry'][0]['changes'][0]['value']['messages'][0]
-                msg_id = msg_obj['id'] # ID único del mensaje
+                msg_id = msg_obj['id']
                 
                 # --- FILTRO ANTIDUPLICADOS ---
                 if msg_id in mensajes_procesados:
@@ -84,7 +85,22 @@ def webhook():
                 if len(mensajes_procesados) > 100: mensajes_procesados.pop()
 
                 num = msg_obj['from']
-                texto = msg_obj.get('text', {}).get('body', "").strip()
+
+                # --- 📍 DETECTOR DE TIPO DE MENSAJE (TEXTO O UBICACIÓN) ---
+                tipo_msg = msg_obj.get('type')
+                
+                if tipo_msg == 'text':
+                    texto = msg_obj.get('text', {}).get('body', "").strip()
+                elif tipo_msg == 'location':
+                    loc = msg_obj.get('location')
+                    lat = loc['latitude']
+                    lon = loc['longitude']
+                    # Creamos el link de Google Maps
+                    texto = f"📍 UBICACIÓN RECIBIDA: https://www.google.com/maps?q={lat},{lon}"
+                else:
+                    texto = f"[{tipo_msg.upper()} RECIBIDO]"
+
+                # Ajuste de hora México (-6 horas)
                 ahora = (datetime.datetime.now() - datetime.timedelta(hours=6)).strftime("%d/%m/%Y %H:%M:%S")
 
                 # Identificar usuario para el log
@@ -123,7 +139,7 @@ def webhook():
                         enviar_wa(f"¡Gajo #{info['Numero_Vaso']}! 🍹 ¿Cómo te llamas para registrar tu pedido? ✍️", num)
                     return "OK", 200
 
-                # 3. CONOCIDO
+                # 3. CONOCIDO (SOLO ANOTAR LOG)
                 if fila_qr or fila_prospecto:
                     anotar_log(num, nombre_log, "Cliente", texto)
                     return "OK", 200
@@ -133,7 +149,9 @@ def webhook():
                 esperando_nombre[num] = "PROSPECTO"
                 enviar_wa("¡Hola! 🍹 Bienvenido a **Gajo Fresco**. No encontré un pedido activo. ¿Cómo te llamas para atenderte personalmente? ✨", num)
 
-        except: pass
+        except Exception as e:
+            print(f"❌ Error procesando: {e}")
+            
         return "OK", 200
     return "OK", 200
 
