@@ -147,7 +147,7 @@ def webhook():
                 # 4. NUEVO
                 anotar_log(num, "Nuevo", "Cliente", texto)
                 esperando_nombre[num] = "PROSPECTO"
-                enviar_wa("¡Hola! 🍹 Bienvenido a **Gajo Fresco**. No encontré un pedido activo. ¿Cómo te llamas para atenderte personalmente? ✨", num)
+                enviar_wa("¡Hola! 🍹 Bienvenido a *Gajo!*. No encontré un pedido activo. ¿Cómo te llamas para atenderte personalmente? ✨", num)
 
         except Exception as e:
             print(f"❌ Error procesando: {e}")
