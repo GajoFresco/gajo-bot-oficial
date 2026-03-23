@@ -10,9 +10,6 @@ from google.oauth2.service_account import Credentials
 TOKEN = st.secrets["WHATSAPP_TOKEN"]
 PHONE_ID = st.secrets["PHONE_ID"]
 SHEET_ID = st.secrets["SHEET_ID"]
-# Cambia estos links por tus URLs reales
-MENU_IMG_URL = "https://tu-link-de-imagen.jpg" 
-MENU_PDF_URL = "https://tu-link-de-menu.pdf"
 
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
@@ -20,16 +17,40 @@ client = gspread.authorize(creds)
 
 st.set_page_config(page_title="Gajo! Manager", page_icon="🍹", layout="wide")
 
-# --- 📝 FUNCIONES DE APOYO ---
-def anotar_respuesta_en_log(telefono, nombre, mensaje):
-    h = client.open_by_key(SHEET_ID).worksheet("Chat_Logs")
-    ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    h.append_row([ahora, str(telefono), nombre, "Luis (Gajo)", mensaje])
+# --- 📝 FUNCIONES DE ENVÍO Y LOG ---
+def anotar_log(telefono, nombre, emisor, mensaje):
+    try:
+        h = client.open_by_key(SHEET_ID).worksheet("Chat_Logs")
+        ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        h.append_row([ahora, str(telefono), nombre, emisor, mensaje])
+    except: pass
 
-def enviar_mensaje_wa(telefono, payload):
+def enviar_texto_wa(telefono, texto):
     url = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
-    headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    payload = {"messaging_product": "whatsapp", "to": str(telefono), "type": "text", "text": {"body": texto}}
     return requests.post(url, headers=headers, json=payload)
+
+def enviar_archivo_wa(telefono, archivo):
+    # 1. Subir el archivo a Meta para obtener un ID
+    url_media = f"https://graph.facebook.com/v21.0/{PHONE_ID}/media"
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    files = {'file': (archivo.name, archivo.getvalue(), archivo.type)}
+    data = {'messaging_product': 'whatsapp'}
+    
+    res_media = requests.post(url_media, headers=headers, files=files, data=data)
+    
+    if res_media.status_code == 200:
+        media_id = res_media.json()['id']
+        # 2. Enviar el mensaje usando el media_id
+        url_msg = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
+        tipo = "image" if "image" in archivo.type else "document"
+        payload = {
+            "messaging_product": "whatsapp", "to": str(telefono), "type": tipo,
+            tipo: {"id": media_id}
+        }
+        return requests.post(url_msg, headers=headers, json=payload)
+    return res_media
 
 # --- 📊 CARGA DE DATOS ---
 st.title("🍹 Gajo! Central de Mensajes")
@@ -41,63 +62,64 @@ except:
     df_logs = pd.DataFrame()
 
 if not df_logs.empty:
+    # --- CREAR AGENDA DE NOMBRES ---
+    # Sacamos el último nombre conocido para cada teléfono
+    agenda = df_logs[df_logs['Nombre'] != 'Cliente'].drop_duplicates('Telefono', keep='last')
+    nombres_map = dict(zip(agenda['Telefono'].astype(str), agenda['Nombre']))
+
     with st.sidebar:
-        st.header("💬 Conversaciones")
-        # Mostramos los teléfonos que han escrito, el más reciente arriba
+        st.header("👥 Conversaciones")
         lista_tels = df_logs['Telefono'].unique().tolist()[::-1]
-        tel_sel = st.selectbox("Selecciona un chat:", lista_tels)
         
-        st.divider()
-        st.subheader("📁 Enviar Multimedia")
-        if st.button("🖼️ Enviar Menú (Imagen)"):
-            payload = {
-                "messaging_product": "whatsapp", "to": str(tel_sel), "type": "image",
-                "image": {"link": MENU_IMG_URL, "caption": "¡Aquí tienes nuestro menú! 🍹"}
-            }
-            if enviar_mensaje_wa(tel_sel, payload).status_code == 200:
-                anotar_respuesta_en_log(tel_sel, "Cliente", "Envió Menú (Imagen)")
-                st.success("Imagen enviada")
-        
-        if st.button("📄 Enviar Menú (PDF)"):
-            payload = {
-                "messaging_product": "whatsapp", "to": str(tel_sel), "type": "document",
-                "document": {"link": MENU_PDF_URL, "filename": "Menu_Gajo_Fresco.pdf", "caption": "Menú en formato PDF 📄"}
-            }
-            if enviar_mensaje_wa(tel_sel, payload).status_code == 200:
-                anotar_respuesta_en_log(tel_sel, "Cliente", "Envió Menú (PDF)")
-                st.success("PDF enviado")
+        # Formateamos la lista para mostrar "Nombre (Teléfono)"
+        opciones_sidebar = []
+        for t in lista_tels:
+            nombre = nombres_map.get(str(t), "Cliente Nuevo")
+            opciones_sidebar.append(f"{nombre} ({t})")
+            
+        sel_contacto = st.selectbox("Selecciona un chat:", opciones_sidebar)
+        tel_sel = sel_contacto.split("(")[1].replace(")", "").strip()
+        nombre_sel = sel_contacto.split(" (")[0]
 
         st.divider()
-        if st.button("🔄 Refrescar ahora"): st.rerun()
+        st.subheader("📁 Enviar Archivo Local")
+        archivo_subido = st.file_uploader("Imagen o PDF del menú:", type=['png', 'jpg', 'jpeg', 'pdf'])
+        
+        if archivo_subido and st.button("🚀 Enviar Archivo Seleccionado"):
+            with st.spinner("Subiendo y enviando..."):
+                res = enviar_archivo_wa(tel_sel, archivo_subido)
+                if res.status_code == 200:
+                    anotar_log(tel_sel, nombre_sel, "Luis (Gajo)", f"Envió archivo: {archivo_subido.name}")
+                    st.success("¡Archivo enviado!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("Error al subir archivo a Meta.")
+
+        if st.button("🔄 Refrescar Pantalla"): st.rerun()
 
     # --- 📱 VISUALIZACIÓN DEL CHAT ---
-    chat_actual = df_logs[df_logs['Telefono'].astype(str) == str(tel_sel)].sort_values(by='Fecha')
-    ultimo_nombre = chat_actual[chat_actual['Nombre'] != 'Cliente']['Nombre'].iloc[-1] if not chat_actual[chat_actual['Nombre'] != 'Cliente'].empty else "Cliente"
+    chat_actual = df_logs[df_logs['Telefono'].astype(str) == str(tel_sel)]
+    
+    st.subheader(f"Chat con: {nombre_sel}")
+    st.caption(f"Número: {tel_sel}")
 
-    st.subheader(f"Chat con: {ultimo_nombre} ({tel_sel})")
-
-    chat_container = st.container(height=500, border=True)
+    chat_container = st.container(height=450, border=True)
     with chat_container:
         for _, fila in chat_actual.iterrows():
-            role = "assistant" if "Gajo" in str(fila['Emisor']) else "user"
-            avatar = "🍹" if role == "assistant" else "👤"
-            with st.chat_message(role, avatar=avatar):
+            is_luis = "Gajo" in str(fila['Emisor'])
+            with st.chat_message("assistant" if is_luis else "user", avatar="🍹" if is_luis else "👤"):
                 st.write(fila['Mensaje'])
-                st.caption(f"{fila['Fecha']} - {fila['Emisor']}")
+                st.caption(f"{fila['Fecha']}")
 
-    # --- ✉️ CAJA DE RESPUESTA ---
+    # --- ✉️ RESPUESTA RÁPIDA ---
     if respuesta := st.chat_input("Escribe tu respuesta aquí..."):
-        payload = {"messaging_product": "whatsapp", "to": str(tel_sel), "type": "text", "text": {"body": respuesta}}
-        res = enviar_mensaje_wa(tel_sel, payload)
-        if res.status_code == 200:
-            anotar_respuesta_en_log(tel_sel, ultimo_nombre, respuesta)
+        if enviar_texto_wa(tel_sel, respuesta).status_code == 200:
+            anotar_log(tel_sel, nombre_sel, "Luis (Gajo)", respuesta)
             st.rerun()
-        else:
-            st.error(f"Error: {res.text}")
 
 else:
-    st.info("Esperando que caiga el primer Gajo... 🍋")
+    st.info("Esperando primer mensaje... 🍋")
 
-# Auto-refresh cada 15 segundos
-time.sleep(15)
+time.sleep(20)
 st.rerun()
