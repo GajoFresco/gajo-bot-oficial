@@ -28,7 +28,7 @@ def anotar_log(telefono, nombre, emisor, mensaje):
         h_logs = conectar_sheet("Chat_Logs")
         ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         h_logs.append_row([ahora, str(telefono), nombre, emisor, mensaje])
-    except: pass
+    except: print("❌ Error anotando log")
 
 def buscar_id_qr(mensaje):
     try:
@@ -75,30 +75,35 @@ def webhook():
                 texto = msg_val.get('text', {}).get('body', "").strip()
                 ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-                # 1. ¿ESPERANDO NOMBRE?
+                # --- SIEMPRE ANOTAR EN LOG (Para ver el "Hola" en la App) ---
+                # Buscamos si ya tiene nombre en algún lado para el log
+                fila_qr = buscar_fila_por_telefono(num, "Hoja 1")
+                fila_prospecto = buscar_fila_por_telefono(num, "Prospectos")
+                nombre_para_log = "Cliente Nuevo"
+                if fila_qr: nombre_para_log = "Cliente QR"
+                if fila_prospecto: nombre_para_log = "Prospecto"
+                
+                anotar_log(num, nombre_para_log, "Cliente", texto)
+
+                # 1. ¿ESPERANDO NOMBRE PARA REGISTRO?
                 if num in esperando_nombre:
                     valor = esperando_nombre[num]
                     if valor == "PROSPECTO":
-                        h_pros = conectar_sheet("Prospectos")
-                        h_pros.append_row(["MANUAL", texto, num, "Registro inicial", ahora])
-                        anotar_log(num, texto, "Cliente", f"Se registró como: {texto}")
+                        conectar_sheet("Prospectos").append_row(["MANUAL", texto, num, "Registro inicial", ahora])
                         enviar_wa(f"¡Mucho gusto, {texto}! ✨ Ya te registré. En un momento te atenderán personalmente. 🍹", num)
                     else:
                         h_qr = conectar_sheet("Hoja 1")
                         h_qr.update_cell(valor, 5, texto)
                         h_qr.update_cell(valor, 6, num)
-                        anotar_log(num, texto, "Cliente", f"Se registró (QR) como: {texto}")
-                        enviar_wa(f"¡Listo, {texto}! ✨ Pedido registrado. En un momento te atenderán personalmente. 🍹", num)
+                        enviar_wa(f"¡Listo, {texto}! ✨ Pedido vinculado. En un momento te atenderán personalmente. 🍹", num)
                     del esperando_nombre[num]
                     return "OK", 200
 
-                # 2. ¿CÓDIGO QR?
+                # 2. ¿ES UN CÓDIGO QR?
                 info = buscar_id_qr(texto)
                 if info:
                     f = info['fila_index']
                     conectar_sheet("Hoja 1").update_cell(f, 9, texto)
-                    nom = info.get('Nombre_Cliente', 'Cliente QR')
-                    anotar_log(num, nom, "Cliente", f"Escaneó QR: {texto}")
                     if info.get('Nombre_Cliente'):
                         enviar_wa(f"¡Hola de nuevo! 🍹 Eres el Gajo #{info['Numero_Vaso']}.", num)
                     else:
@@ -106,16 +111,18 @@ def webhook():
                         enviar_wa(f"¡Gajo #{info['Numero_Vaso']}! 🍹 ¿Cómo te llamas para registrar tu pedido? ✍️", num)
                     return "OK", 200
 
-                # 3. USUARIO CONOCIDO (PLATICA)
-                anotar_log(num, "Cliente", "Cliente", texto)
-                if texto.upper() == "HOLA":
-                    enviar_wa("¡Hola! 🍹 Bienvenido a Gajo Fresco. En un momento te atenderán personalmente. ✨", num)
+                # 3. SI YA ES CONOCIDO, EL BOT SE CALLA (Luis responde desde App)
+                if fila_qr or fila_prospecto:
+                    print(f"🤫 Cliente {num} conocido. Bot en silencio.")
                     return "OK", 200
                 
-                # 4. DESCONOCIDO TOTAL (PEDIR NOMBRE)
-                if not buscar_fila_por_telefono(num, "Hoja 1") and not buscar_fila_por_telefono(num, "Prospectos"):
-                    esperando_nombre[num] = "PROSPECTO"
-                    enviar_wa("¡Hola! 🍹 No encontré un pedido activo con tu número. ¿Cómo te llamas para que te atiendan personalmente? ✨", num)
+                # 4. SI LLEGÓ AQUÍ, ES DESCONOCIDO TOTAL
+                esperando_nombre[num] = "PROSPECTO"
+                bienvenida = (
+                    "¡Hola! 🍹 Bienvenido a **Gajo Fresco**.\n\n"
+                    "No encontré un pedido activo con tu número. ¿Cómo te llamas para que te atiendan personalmente? ✨"
+                )
+                enviar_wa(bienvenida, num)
 
         except Exception as e: print(f"❌ Error: {e}")
         return "OK", 200
