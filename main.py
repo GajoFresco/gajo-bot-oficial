@@ -23,7 +23,6 @@ def conectar_sheet(nombre_hoja="Hoja 1"):
         return client.open_by_key(SHEET_ID).worksheet(nombre_hoja)
     except: return None
 
-# --- 📝 FUNCIÓN PARA ANOTAR EN EL DIARIO ---
 def anotar_log(telefono, nombre, emisor, mensaje):
     try:
         h_logs = conectar_sheet("Chat_Logs")
@@ -42,6 +41,16 @@ def buscar_id_qr(mensaje):
             if id_db and id_db in msg:
                 item['fila_index'] = i
                 return item
+        return None
+    except: return None
+
+def buscar_fila_por_telefono(telefono, nombre_hoja="Hoja 1"):
+    try:
+        hoja = conectar_sheet(nombre_hoja)
+        datos = hoja.get_all_records()
+        for i, item in enumerate(datos, start=2):
+            col_tel = "Telefono_Cliente" if nombre_hoja == "Hoja 1" else "Telefono"
+            if str(item.get(col_tel)) == str(telefono): return i
         return None
     except: return None
 
@@ -66,16 +75,30 @@ def webhook():
                 texto = msg_val.get('text', {}).get('body', "").strip()
                 ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-                # 1. ¿ES CÓDIGO QR?
+                # 1. ¿ESPERANDO NOMBRE?
+                if num in esperando_nombre:
+                    valor = esperando_nombre[num]
+                    if valor == "PROSPECTO":
+                        h_pros = conectar_sheet("Prospectos")
+                        h_pros.append_row(["MANUAL", texto, num, "Registro inicial", ahora])
+                        anotar_log(num, texto, "Cliente", f"Se registró como: {texto}")
+                        enviar_wa(f"¡Mucho gusto, {texto}! ✨ Ya te registré. En un momento te atenderán personalmente. 🍹", num)
+                    else:
+                        h_qr = conectar_sheet("Hoja 1")
+                        h_qr.update_cell(valor, 5, texto)
+                        h_qr.update_cell(valor, 6, num)
+                        anotar_log(num, texto, "Cliente", f"Se registró (QR) como: {texto}")
+                        enviar_wa(f"¡Listo, {texto}! ✨ Pedido registrado. En un momento te atenderán personalmente. 🍹", num)
+                    del esperando_nombre[num]
+                    return "OK", 200
+
+                # 2. ¿CÓDIGO QR?
                 info = buscar_id_qr(texto)
                 if info:
                     f = info['fila_index']
-                    h_qr = conectar_sheet("Hoja 1")
-                    h_qr.update_cell(f, 9, texto)
-                    h_qr.update_cell(f, 10, ahora)
-                    nombre_actual = info.get('Nombre_Cliente', 'Sin Registro')
-                    anotar_log(num, nombre_actual, "Cliente", f"Escaneó QR: {texto}")
-                    
+                    conectar_sheet("Hoja 1").update_cell(f, 9, texto)
+                    nom = info.get('Nombre_Cliente', 'Cliente QR')
+                    anotar_log(num, nom, "Cliente", f"Escaneó QR: {texto}")
                     if info.get('Nombre_Cliente'):
                         enviar_wa(f"¡Hola de nuevo! 🍹 Eres el Gajo #{info['Numero_Vaso']}.", num)
                     else:
@@ -83,24 +106,18 @@ def webhook():
                         enviar_wa(f"¡Gajo #{info['Numero_Vaso']}! 🍹 ¿Cómo te llamas para registrar tu pedido? ✍️", num)
                     return "OK", 200
 
-                # 2. ¿ES NOMBRE?
-                if num in esperando_nombre:
-                    f = esperando_nombre[num]
-                    h_qr = conectar_sheet("Hoja 1")
-                    h_qr.update_cell(f, 5, texto)
-                    h_qr.update_cell(f, 6, num)
-                    anotar_log(num, texto, "Cliente", f"Se registró como: {texto}")
-                    enviar_wa(f"¡Mucho gusto, {texto}! ✨ Ya te registré. En un momento te atenderán personalmente. 🍹", num)
-                    del esperando_nombre[num]
-                    return "OK", 200
-
-                # 3. YA ESTÁ EN LA LISTA (PLATICA NORMAL)
+                # 3. USUARIO CONOCIDO (PLATICA)
                 anotar_log(num, "Cliente", "Cliente", texto)
-                # Saludo por defecto si es la primera vez que escribe sin QR
                 if texto.upper() == "HOLA":
-                     enviar_wa("¡Hola! 🍹 Bienvenido a Gajo Fresco. En un momento te atenderán personalmente. ✨", num)
+                    enviar_wa("¡Hola! 🍹 Bienvenido a Gajo Fresco. En un momento te atenderán personalmente. ✨", num)
+                    return "OK", 200
+                
+                # 4. DESCONOCIDO TOTAL (PEDIR NOMBRE)
+                if not buscar_fila_por_telefono(num, "Hoja 1") and not buscar_fila_por_telefono(num, "Prospectos"):
+                    esperando_nombre[num] = "PROSPECTO"
+                    enviar_wa("¡Hola! 🍹 No encontré un pedido activo con tu número. ¿Cómo te llamas para que te atiendan personalmente? ✨", num)
 
-        except: pass
+        except Exception as e: print(f"❌ Error: {e}")
         return "OK", 200
     return "OK", 200
 
