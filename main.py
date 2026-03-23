@@ -7,7 +7,7 @@ from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
 
-# --- 📋 CONFIGURACIÓN DE RENDER ---
+# --- 📋 CONFIGURACIÓN ---
 TOKEN = os.environ.get('WHATSAPP_TOKEN')
 PHONE_ID = os.environ.get('PHONE_ID')
 SHEET_ID = os.environ.get('SHEET_ID')
@@ -21,9 +21,15 @@ def conectar_sheet(nombre_hoja="Hoja 1"):
         creds = Credentials.from_service_account_file('creds.json', scopes=scope)
         client = gspread.authorize(creds)
         return client.open_by_key(SHEET_ID).worksheet(nombre_hoja)
-    except Exception as e:
-        print(f"❌ Error conectando a {nombre_hoja}: {e}")
-        return None
+    except: return None
+
+# --- 📝 FUNCIÓN PARA ANOTAR EN EL DIARIO ---
+def anotar_log(telefono, nombre, emisor, mensaje):
+    try:
+        h_logs = conectar_sheet("Chat_Logs")
+        ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        h_logs.append_row([ahora, str(telefono), nombre, emisor, mensaje])
+    except: pass
 
 def buscar_id_qr(mensaje):
     try:
@@ -37,29 +43,7 @@ def buscar_id_qr(mensaje):
                 item['fila_index'] = i
                 return item
         return None
-    except Exception as e:
-        print(f"❌ Error buscando ID: {e}")
-        return None
-
-def buscar_fila_por_telefono(telefono, nombre_hoja="Hoja 1"):
-    try:
-        hoja = conectar_sheet(nombre_hoja)
-        datos = hoja.get_all_records()
-        for i, item in enumerate(datos, start=2):
-            tel_db = str(item.get("Telefono_Cliente") or item.get("Telefono", ""))
-            if tel_db == str(telefono):
-                return i
-        return None
-    except:
-        return None
-
-def registrar_prospecto_nuevo(nombre, telefono):
-    try:
-        hoja = conectar_sheet("Prospectos")
-        ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        hoja.append_row(["MANUAL", nombre, telefono, "Registro inicial sin QR", ahora])
-    except Exception as e:
-        print(f"❌ Error prospecto: {e}")
+    except: return None
 
 def enviar_wa(mensaje, numero):
     url = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
@@ -70,69 +54,53 @@ def enviar_wa(mensaje, numero):
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
     if request.method == 'GET':
-        if request.args.get("hub.verify_token") == WEBHOOK_TOKEN:
-            return request.args.get("hub.challenge")
+        if request.args.get("hub.verify_token") == WEBHOOK_TOKEN: return request.args.get("hub.challenge")
         return "Error", 403
 
     if request.method == 'POST':
         data = request.get_json()
         try:
             if 'messages' in data['entry'][0]['changes'][0]['value']:
-                msg_obj = data['entry'][0]['changes'][0]['value']['messages'][0]
-                num_cliente = msg_obj['from']
-                texto = msg_obj.get('text', {}).get('body', "").strip()
-                texto_upper = texto.upper()
+                msg_val = data['entry'][0]['changes'][0]['value']['messages'][0]
+                num = msg_val['from']
+                texto = msg_val.get('text', {}).get('body', "").strip()
                 ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-                # 1. ESPERANDO NOMBRE
-                if num_cliente in esperando_nombre:
-                    valor = esperando_nombre[num_cliente]
-                    if valor == "PROSPECTO":
-                        registrar_prospecto_nuevo(texto, num_cliente)
-                        enviar_wa(f"¡Listo, {texto}! Ya te registré. 📝 En un momento Luis te atenderá. 🍹", num_cliente)
-                    else:
-                        hoja_qr = conectar_sheet("Hoja 1")
-                        hoja_qr.update_cell(valor, 5, texto)
-                        hoja_qr.update_cell(valor, 6, num_cliente)
-                        hoja_qr.update_cell(valor, 9, f"Registro: {texto}")
-                        hoja_qr.update_cell(valor, 10, ahora)
-                        enviar_wa(f"¡Mucho gusto, {texto}! ✨ Ya te registré. 🍹", num_cliente)
-                    del esperando_nombre[num_cliente]
-                    return "OK", 200
-
-                # 2. CÓDIGO QR
+                # 1. ¿ES CÓDIGO QR?
                 info = buscar_id_qr(texto)
                 if info:
-                    fila = info['fila_index']
-                    hoja_qr = conectar_sheet("Hoja 1")
-                    hoja_qr.update_cell(fila, 9, f"QR: {texto}")
-                    hoja_qr.update_cell(fila, 10, ahora)
+                    f = info['fila_index']
+                    h_qr = conectar_sheet("Hoja 1")
+                    h_qr.update_cell(f, 9, texto)
+                    h_qr.update_cell(f, 10, ahora)
+                    nombre_actual = info.get('Nombre_Cliente', 'Sin Registro')
+                    anotar_log(num, nombre_actual, "Cliente", f"Escaneó QR: {texto}")
+                    
                     if info.get('Nombre_Cliente'):
-                        enviar_wa(f"¡Hola de nuevo! 🍹 Eres el Gajo #{info.get('Numero_Vaso')}.", num_cliente)
+                        enviar_wa(f"¡Hola de nuevo! 🍹 Eres el Gajo #{info['Numero_Vaso']}.", num)
                     else:
-                        esperando_nombre[num_cliente] = fila
-                        enviar_wa(f"¡Eres el **Gajo #{info.get('Numero_Vaso')}**! 🍹\n\n¿Cómo te llamas? ✍️", num_cliente)
+                        esperando_nombre[num] = f
+                        enviar_wa(f"¡Gajo #{info['Numero_Vaso']}! 🍹 ¿Cómo te llamas para registrar tu pedido? ✍️", num)
                     return "OK", 200
 
-                # 3. SILENCIO TÁCTICO
-                fila_qr = buscar_fila_por_telefono(num_cliente, "Hoja 1")
-                fila_prospecto = buscar_fila_por_telefono(num_cliente, "Prospectos")
-                if fila_qr:
-                    conectar_sheet("Hoja 1").update_cell(fila_qr, 9, texto)
-                    conectar_sheet("Hoja 1").update_cell(fila_qr, 10, ahora)
-                    return "OK", 200
-                if fila_prospecto:
-                    conectar_sheet("Prospectos").update_cell(fila_prospecto, 4, texto)
-                    conectar_sheet("Prospectos").update_cell(fila_prospecto, 5, ahora)
+                # 2. ¿ES NOMBRE?
+                if num in esperando_nombre:
+                    f = esperando_nombre[num]
+                    h_qr = conectar_sheet("Hoja 1")
+                    h_qr.update_cell(f, 5, texto)
+                    h_qr.update_cell(f, 6, num)
+                    anotar_log(num, texto, "Cliente", f"Se registró como: {texto}")
+                    enviar_wa(f"¡Mucho gusto, {texto}! ✨ Ya te registré. En un momento te atenderán personalmente. 🍹", num)
+                    del esperando_nombre[num]
                     return "OK", 200
 
-                # 4. BIENVENIDA
-                esperando_nombre[num_cliente] = "PROSPECTO"
-                enviar_wa("¡Hola! 🍹 No encontré un pedido activo. ¿Cómo te llamas para que Luis te atienda? ✨", num_cliente)
-                return "OK", 200
+                # 3. YA ESTÁ EN LA LISTA (PLATICA NORMAL)
+                anotar_log(num, "Cliente", "Cliente", texto)
+                # Saludo por defecto si es la primera vez que escribe sin QR
+                if texto.upper() == "HOLA":
+                     enviar_wa("¡Hola! 🍹 Bienvenido a Gajo Fresco. En un momento te atenderán personalmente. ✨", num)
 
-        except Exception as e:
-            print(f"❌ Error: {e}")
+        except: pass
         return "OK", 200
     return "OK", 200
 
