@@ -17,11 +17,15 @@ client = gspread.authorize(creds)
 
 st.set_page_config(page_title="Gajo! Manager", page_icon="🍹", layout="wide")
 
-# --- 📝 FUNCIONES DE ENVÍO ---
+# --- 📝 FUNCIONES DE ENVÍO Y REGISTRO ---
 def anotar_log(telefono, nombre, emisor, mensaje):
-    h = client.open_by_key(SHEET_ID).worksheet("Chat_Logs")
-    ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    h.append_row([ahora, str(telefono), nombre, emisor, mensaje])
+    try:
+        h = client.open_by_key(SHEET_ID).worksheet("Chat_Logs")
+        # --- AJUSTE DE HORA MÉXICO (-6 HORAS) ---
+        ahora = (datetime.datetime.now() - datetime.timedelta(hours=6)).strftime("%d/%m/%Y %H:%M:%S")
+        h.append_row([ahora, str(telefono), nombre, emisor, mensaje])
+    except Exception as e:
+        st.error(f"Error al anotar log: {e}")
 
 def enviar_archivo_wa(telefono, archivo):
     # Subir a Meta
@@ -66,12 +70,14 @@ except:
 if not df_logs.empty:
     with st.sidebar:
         st.header("👥 Conversaciones")
+        # Obtenemos los teléfonos únicos, el más reciente arriba
         lista_tels = df_logs['Telefono'].unique().tolist()[::-1]
         
         # Lista con formato "Nombre (Teléfono)"
         opciones = [f"{agenda_nombres.get(str(t), 'Desconocido')} ({t})" for t in lista_tels]
         sel_contacto = st.selectbox("Selecciona un chat:", opciones)
         
+        # Extraemos teléfono y nombre de la selección
         tel_sel = sel_contacto.split("(")[1].replace(")", "").strip()
         nombre_sel = sel_contacto.split(" (")[0]
 
@@ -79,32 +85,46 @@ if not df_logs.empty:
         st.subheader("📁 Enviar Menú/Foto")
         archivo = st.file_uploader("Sube Imagen o PDF:", type=['png', 'jpg', 'pdf'])
         if archivo and st.button("🚀 Enviar Archivo"):
-            if enviar_archivo_wa(tel_sel, archivo).status_code == 200:
-                anotar_log(tel_sel, nombre_sel, "Luis (Gajo)", f"Envió archivo: {archivo.name}")
-                st.success("¡Enviado!")
-                time.sleep(1)
-                st.rerun()
+            with st.spinner("Enviando multimedia..."):
+                res = enviar_archivo_wa(tel_sel, archivo)
+                if res.status_code == 200:
+                    anotar_log(tel_sel, nombre_sel, "Luis (Gajo)", f"Envió archivo: {archivo.name}")
+                    st.success("¡Enviado!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("No se pudo enviar el archivo.")
 
-    # --- 📱 EL CHAT ---
+    # --- 📱 VISUALIZACIÓN DEL CHAT ---
     chat_actual = df_logs[df_logs['Telefono'].astype(str) == str(tel_sel)]
     st.subheader(f"Conversación con: {nombre_sel}")
+    st.caption(f"Número: {tel_sel}")
     
-    container = st.container(height=450, border=True)
+    container = st.container(height=500, border=True)
     with container:
         for _, fila in chat_actual.iterrows():
-            role = "assistant" if "Gajo" in str(fila['Emisor']) else "user"
-            with st.chat_message(role, avatar="🍹" if role == "assistant" else "👤"):
+            # Luis es 'assistant', el cliente es 'user'
+            is_luis = "Gajo" in str(fila['Emisor'])
+            role = "assistant" if is_luis else "user"
+            
+            with st.chat_message(role, avatar="🍹" if is_luis else "👤"):
                 st.write(fila['Mensaje'])
                 st.caption(f"{fila['Fecha']} - {fila['Emisor']}")
 
-    if resp := st.chat_input("Escribe tu respuesta..."):
+    # --- ✉️ ENTRADA DE TEXTO ---
+    if resp := st.chat_input("Escribe tu respuesta aquí..."):
         url = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
+        headers = {"Authorization": f"Bearer {TOKEN}"}
         payload = {"messaging_product": "whatsapp", "to": tel_sel, "type": "text", "text": {"body": resp}}
-        if requests.post(url, headers={"Authorization": f"Bearer {TOKEN}"}, json=payload).status_code == 200:
+        
+        if requests.post(url, headers=headers, json=payload).status_code == 200:
             anotar_log(tel_sel, nombre_sel, "Luis (Gajo)", resp)
             st.rerun()
+        else:
+            st.error("Error al enviar el mensaje de texto.")
 else:
-    st.info("Esperando mensajes...")
+    st.info("No hay mensajes registrados en Chat_Logs todavía. 🍋")
 
+# Auto-refresco para ver mensajes nuevos del cliente
 time.sleep(20)
 st.rerun()
