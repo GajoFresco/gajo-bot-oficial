@@ -1,6 +1,7 @@
 import os
 import requests
 import gspread
+import datetime
 from flask import Flask, request
 from google.oauth2.service_account import Credentials
 
@@ -56,6 +57,17 @@ def usuario_ya_registrado(telefono):
     except:
         return False
 
+def buscar_fila_por_telefono(telefono):
+    try:
+        hoja = conectar_sheet()
+        datos = hoja.get_all_records()
+        for i, item in enumerate(datos, start=2):
+            if str(item.get("Telefono_Cliente")) == str(telefono):
+                return i
+        return None
+    except:
+        return None
+
 def registrar_datos_cliente(fila, nombre, telefono):
     try:
         hoja = conectar_sheet()
@@ -92,30 +104,26 @@ def webhook():
         print(f"🚨 ALERTA DE DATOS ENTRANTES: {data}")
         # -------------------------------------------------------
 
-        try:
-            # Verificamos si es un mensaje de WhatsApp
+       try:
             if 'messages' in data['entry'][0]['changes'][0]['value']:
                 msg_obj = data['entry'][0]['changes'][0]['value']['messages'][0]
                 num_cliente = msg_obj['from']
-                
-                # Si el mensaje no tiene texto (es imagen o botón), evitamos que truene
                 texto = msg_obj.get('text', {}).get('body', "").strip()
                 texto_upper = texto.upper()
+                ahora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                
+                hoja = conectar_sheet() # Conectamos una vez para usarla en todo el bloque
 
-                # 1. ¿Estamos esperando un nombre?
-                if num_cliente in esperando_nombre:
-                    fila = esperando_nombre[num_cliente]
-                    registrar_datos_cliente(fila, texto, num_cliente)
-                    enviar_wa(f"¡Mucho gusto, {texto}! ✨ Ya te registré. En un momento Luis te atenderá personalmente. 🍹", num_cliente)
-                    del esperando_nombre[num_cliente]
-                    return "OK", 200
-
-                # 2. ¿Es un ID de QR válido (ej: G-001-X8P)?
+                # --- CASO A: ESCANEANDO QR NUEVO O REPETIDO ---
                 info = buscar_id_qr(texto)
                 if info:
+                    fila = info.get('fila_index')
                     v = info.get('Numero_Vaso')
                     m = info.get('Mantra_Asignado')
-                    fila = info.get('fila_index')
+                    
+                    # Anotamos el código QR como primer mensaje y la hora
+                    hoja.update_cell(fila, 9, f"Escaneó QR: {texto}") # Columna I
+                    hoja.update_cell(fila, 10, ahora)                 # Columna J
                     
                     if info.get('Nombre_Cliente'):
                         enviar_wa(f"¡Hola de nuevo! 🍹 Eres el Gajo #{v}.\n\n*Mantra: {m}*", num_cliente)
@@ -124,14 +132,28 @@ def webhook():
                         enviar_wa(f"¡Eres el **Gajo #{v}**! 🍹\n\n*{m}*\n\n¿Cómo te llamas para registrar tu pedido? ✍️", num_cliente)
                     return "OK", 200
 
-                # 3. ¿Parece un código G- pero no es válido?
-                if texto_upper.startswith("G-"):
-                    enviar_wa("¡Huy! 🕵️‍♂️ Ese código no está en nuestra canasta. O es un error de dedo o vienes del futuro. ⏳", num_cliente)
+                # --- CASO B: ESTAMOS ESPERANDO SU NOMBRE ---
+                if num_cliente in esperando_nombre:
+                    fila = esperando_nombre[num_cliente]
+                    registrar_datos_cliente(fila, texto, num_cliente)
+                    hoja.update_cell(fila, 9, f"Nombre registrado: {texto}") # Columna I
+                    hoja.update_cell(fila, 10, ahora)
+                    enviar_wa(f"¡Mucho gusto, {texto}! ✨ Ya te registré. En un momento Luis te atenderá personalmente. 🍹", num_cliente)
+                    del esperando_nombre[num_cliente]
                     return "OK", 200
 
-                # 4. SILENCIO TÁCTICO: Si ya está registrado, el bot se calla para que Luis hable
-                if usuario_ya_registrado(num_cliente):
-                    print(f"🤫 Usuario {num_cliente} ya registrado. Bot en silencio.")
+                # --- CASO C: USUARIO YA REGISTRADO (PLATICA NORMAL) ---
+                fila_activa = buscar_fila_por_telefono(num_cliente)
+                if fila_activa:
+                    # EL BOT SE QUEDA CALLADO (Silencio Táctico), PERO ANOTA TODO
+                    hoja.update_cell(fila_activa, 9, texto) # Columna I: Lo que el cliente dice
+                    hoja.update_cell(fila_activa, 10, ahora) # Columna J: La hora
+                    print(f"🤫 Mensaje de {num_cliente} anotado en fila {fila_activa}. Bot en silencio.")
+                    return "OK", 200
+
+                # --- CASO D: CÓDIGO G- ERRÓNEO ---
+                if texto_upper.startswith("G-"):
+                    enviar_wa("¡Huy! 🕵️‍♂️ Ese código no está en nuestra canasta. O es un error de dedo o vienes del futuro. ⏳", num_cliente)
                     return "OK", 200
 
         except Exception as e:
