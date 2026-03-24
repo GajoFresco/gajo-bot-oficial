@@ -7,16 +7,12 @@ import datetime
 from google.oauth2.service_account import Credentials
 
 # ==========================================
-# --- 🖼️ CONFIGURACIÓN DE IMÁGENES (RAW LINKS) ---
+# --- 🖼️ CONFIGURACIÓN DE IMÁGENES ---
 # ==========================================
-# ⚠️ RECUERDA: Pega aquí tus enlaces "Raw" de GitHub
 URL_FAVICON_ISO = "https://raw.githubusercontent.com/GajoFresco/gajo-bot-oficial/main/Logo_Isotipo%20para%20Blanco.png"
-URL_LOGO_HORIZONTAL = "https://github.com/GajoFresco/gajo-bot-oficial/raw/refs/heads/main/Logo_Logotipo%20para%20Blanco.svg"
+URL_LOGO_HORIZONTAL = "https://raw.githubusercontent.com/GajoFresco/gajo-bot-oficial/raw/refs/heads/main/Logo_Logotipo%20para%20Blanco.svg"
 URL_AVATAR_CHATBOT = "https://raw.githubusercontent.com/GajoFresco/gajo-bot-oficial/main/Logo_ChatBot%20para%20Blanco.png"
 
-# ==========================================
-# --- 🎨 PALETA DE COLORES ---
-# ==========================================
 COLOR_PRIMARIO_NARANJA = "#FF9500"
 COLOR_SECUNDARIO_VERDE = "#B5E61D"
 COLOR_FONDO_OSCURO = "#1A1A1A"
@@ -27,10 +23,10 @@ COLOR_TEXTO = "#FFFFFF"
 # ==========================================
 def configurar_pagina():
     st.set_page_config(
-        page_title="Gajo! Central de Mensajes",
+        page_title="Gajo! Manager",
         page_icon=URL_FAVICON_ISO,
         layout="wide",
-        initial_sidebar_state="expanded"
+        initial_sidebar_state="expanded" # Intenta mantenerlo abierto
     )
 
 def aplicar_estilo_visual():
@@ -39,10 +35,23 @@ def aplicar_estilo_visual():
             .stApp {{ background-color: {COLOR_FONDO_OSCURO}; color: {COLOR_TEXTO}; }}
             [data-testid="stSidebar"] {{ background-color: #000000; border-right: 1px solid {COLOR_PRIMARIO_NARANJA}; }}
             h1, h2, h3, .stSubheader {{ color: {COLOR_PRIMARIO_NARANJA} !important; font-family: 'Montserrat', sans-serif; }}
-            .stButton>button {{ background-color: {COLOR_SECUNDARIO_VERDE} !important; color: #000000 !important; border-radius: 20px; font-weight: bold; }}
-            .stChatInputContainer {{ border-top: 1px solid {COLOR_PRIMARIO_NARANJA}; background-color: #000000; }}
-            [data-testid="stChatMessage"] {{ border-radius: 15px; background-color: #262626; }}
+            
+            /* BOTONES */
+            .stButton>button {{ background-color: {COLOR_SECUNDARIO_VERDE} !important; color: #000000 !important; border-radius: 20px; font-weight: bold; border: none; }}
+            
+            /* BURBUJAS BLANCAS CON TEXTO NEGRO */
+            [data-testid="stChatMessage"] {{ 
+                border-radius: 15px; 
+                background-color: #FFFFFF !important; 
+                padding: 15px;
+                margin-bottom: 10px;
+            }}
+            [data-testid="stChatMessage"] p {{ color: #000000 !important; font-size: 16px; }}
+            [data-testid="stChatMessage"] caption {{ color: #555555 !important; }}
+            
+            /* AVATARES */
             [data-testid="stChatMessageAvatar"] img {{ border-radius: 50%; border: 2px solid {COLOR_PRIMARIO_NARANJA}; }}
+            
             #MainMenu, footer, header {{ visibility: hidden; }}
         </style>
     """, unsafe_allow_html=True)
@@ -65,8 +74,6 @@ def cargar_datos(sh):
     if not sh: return pd.DataFrame(), {}
     try:
         df_logs = pd.DataFrame(sh.worksheet("Chat_Logs").get_all_records())
-        
-        # EL CAMBIO ESTÁ AQUÍ: Se agregó el guion bajo _ a _sheet_obj
         @st.cache_data(ttl=60)
         def obtener_agenda_nombres(_sheet_obj):
             agenda = {}
@@ -79,16 +86,12 @@ def cargar_datos(sh):
                     if r.get('Telefono'): agenda[str(r['Telefono'])] = r.get('Nombre', 'Prospecto')
             except: pass
             return agenda
-
         agenda = obtener_agenda_nombres(sh)
         return df_logs, agenda
     except Exception as e:
         st.error(f"❌ Error cargando datos: {e}")
         return pd.DataFrame(), {}
 
-# ==========================================
-# --- 📝 FUNCIONES OPERATIVAS ---
-# ==========================================
 def registrar_en_log(sh, telefono, nombre, emisor, mensaje):
     try:
         h = sh.worksheet("Chat_Logs")
@@ -120,15 +123,16 @@ def main():
     configurar_pagina()
     aplicar_estilo_visual()
     
-    # Cabecera con Logo
-    st.image(URL_LOGO_HORIZONTAL, use_container_width=True)
-    st.markdown("<h3 style='text-align: center;'>Central de Mensajes Inteligente</h3>", unsafe_allow_html=True)
+    # CABECERA: Logo escalado y centrado
+    cols = st.columns([1, 2, 1])
+    with cols[1]:
+        st.image(URL_LOGO_HORIZONTAL, width=300)
+        st.markdown("<h3 style='text-align: center; margin-top: -20px;'>Central de Mensajes</h3>", unsafe_allow_html=True)
     st.divider()
     
     sh = iniciar_conexion_sheets()
     df_logs, agenda = cargar_datos(sh)
     
-    # Sidebar
     with st.sidebar:
         st.markdown(f"<h2 style='color: {COLOR_SECUNDARIO_VERDE} !important;'>👥 Conversaciones</h2>", unsafe_allow_html=True)
         if df_logs.empty:
@@ -151,7 +155,6 @@ def main():
                     time.sleep(1)
                     st.rerun()
 
-    # Chat
     if tel_sel:
         st.subheader(f"💬 Chat con: {nombre_sel}")
         chat_actual = df_logs[df_logs['Telefono'].astype(str) == str(tel_sel)].sort_values(by='Fecha')
