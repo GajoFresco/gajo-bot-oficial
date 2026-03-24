@@ -1,4 +1,5 @@
 import os
+import json
 import requests
 import gspread
 import datetime
@@ -19,7 +20,16 @@ mensajes_procesados = set() # Para evitar el bucle de mensajes
 def conectar_sheet(nombre_hoja="Hoja 1"):
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = Credentials.from_service_account_file('creds.json', scopes=scope)
+        
+        # --- 🔐 SEGURIDAD PLUS ULTRA ---
+        # Leemos la llave desde la variable de entorno de Render
+        creds_json = os.environ.get('GOOGLE_CREDS_JSON')
+        if not creds_json:
+            print("❌ Error: No se encontró la variable GOOGLE_CREDS_JSON")
+            return None
+            
+        creds_dict = json.loads(creds_json)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         client = gspread.authorize(creds)
         return client.open_by_key(SHEET_ID).worksheet(nombre_hoja)
     except Exception as e:
@@ -78,7 +88,6 @@ def webhook():
                 msg_obj = data['entry'][0]['changes'][0]['value']['messages'][0]
                 msg_id = msg_obj['id']
                 
-                # --- FILTRO ANTIDUPLICADOS ---
                 if msg_id in mensajes_procesados:
                     return "OK", 200
                 mensajes_procesados.add(msg_id)
@@ -86,7 +95,7 @@ def webhook():
 
                 num = msg_obj['from']
 
-                # --- 📍 DETECTOR DE TIPO DE MENSAJE (TEXTO O UBICACIÓN) ---
+                # --- 📍 DETECTOR DE TIPO DE MENSAJE ---
                 tipo_msg = msg_obj.get('type')
                 
                 if tipo_msg == 'text':
@@ -95,15 +104,12 @@ def webhook():
                     loc = msg_obj.get('location')
                     lat = loc['latitude']
                     lon = loc['longitude']
-                    # Creamos el link de Google Maps
                     texto = f"📍 UBICACIÓN RECIBIDA: https://www.google.com/maps?q={lat},{lon}"
                 else:
                     texto = f"[{tipo_msg.upper()} RECIBIDO]"
 
-                # Ajuste de hora México (-6 horas)
                 ahora = (datetime.datetime.now() - datetime.timedelta(hours=6)).strftime("%d/%m/%Y %H:%M:%S")
 
-                # Identificar usuario para el log
                 fila_qr = buscar_fila_por_telefono(num, "Hoja 1")
                 fila_prospecto = buscar_fila_por_telefono(num, "Prospectos")
                 nombre_log = "Desconocido"
@@ -139,7 +145,7 @@ def webhook():
                         enviar_wa(f"¡Gajo #{info['Numero_Vaso']}! 🍹 ¿Cómo te llamas para registrar tu pedido? ✍️", num)
                     return "OK", 200
 
-                # 3. CONOCIDO (SOLO ANOTAR LOG)
+                # 3. CONOCIDO
                 if fila_qr or fila_prospecto:
                     anotar_log(num, nombre_log, "Cliente", texto)
                     return "OK", 200
@@ -147,7 +153,7 @@ def webhook():
                 # 4. NUEVO
                 anotar_log(num, "Nuevo", "Cliente", texto)
                 esperando_nombre[num] = "PROSPECTO"
-                enviar_wa("¡Hola! 🍹 Bienvenido a *Gajo!*. No encontré un pedido activo. ¿Cómo te llamas para atenderte personalmente? ✨", num)
+                enviar_wa("¡Hola! 🍹 Bienvenido a **Gajo!**. No encontré un pedido activo. ¿Cómo te llamas para atenderte personalmente? ✨", num)
 
         except Exception as e:
             print(f"❌ Error procesando: {e}")
