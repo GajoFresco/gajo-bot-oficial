@@ -181,7 +181,9 @@ def main():
                     st.rerun()
 
     if tel_sel:
-        st.subheader(f"💬 Chat con: {nombre_sel}")
+        # --- Cabecera de chat limpia (Markdown para control total) ---
+        st.markdown(f"<h3 style='color: {COLOR_NARANJA}; margin-bottom: 0;'>💬 Chat con: {nombre_sel}</h3>", unsafe_allow_html=True)
+        st.caption(f"📱 {tel_sel}")
         chat_actual = df_logs[df_logs['Telefono'].astype(str) == str(tel_sel)].sort_values(by='Fecha')
         
         container = st.container(height=500)
