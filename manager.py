@@ -48,7 +48,7 @@ def aplicar_estilo_visual():
             /* Títulos */
             h1, .stSubheader {{ color: {COLOR_NARANJA} !important; }}
 
-            /* --- 💬 BURBUJAS BLANCAS (Contraste Máximo) --- */
+            /* --- 💬 BURBUJAS BLANCAS --- */
             [data-testid="stChatMessage"] {{
                 background-color: #FFFFFF !important;
                 border-radius: 20px !important;
@@ -82,8 +82,7 @@ def aplicar_estilo_visual():
                 width: 100%;
             }}
 
-            /* MOSTRAR EL MENÚ EN MÓVIL (Corregido) */
-            /* Solo ocultamos el logo de Streamlit y el footer, dejamos el header para el botón */
+            /* MOSTRAR EL MENÚ EN MÓVIL */
             #MainMenu {{ visibility: hidden; }}
             footer {{ visibility: hidden; }}
             header {{ background-color: rgba(0,0,0,0); }}
@@ -189,9 +188,22 @@ def main():
         with container:
             for _, fila in chat_actual.iterrows():
                 es_gajo = "Gajo" in str(fila['Emisor'])
+                
+                # --- 💬 RENDERIZAR MENSAJE ---
                 with st.chat_message("assistant" if es_gajo else "user", avatar=URL_AVATAR_CHATBOT if es_gajo else "👤"):
                     st.write(fila['Mensaje'])
                     st.caption(f"{fila['Fecha']} - {fila['Emisor']}")
+
+                    # --- 🏆 DETECTOR DEL GAJO DORADO (#100) ---
+                    # Si el mensaje contiene "GAJO #100", lanzamos la celebración
+                    if "GAJO #100" in str(fila['Mensaje']).upper():
+                        st.balloons() # ¡Lluvia de globos en tu pantalla!
+                        st.markdown(f"""
+                            <div style="background-color: {COLOR_MORADO}; padding: 15px; border-radius: 15px; border: 3px solid {COLOR_NARANJA}; text-align: center; margin-top: 10px;">
+                                <h3 style="color: white !important; margin: 0;">🏆 ¡TENEMOS GANADOR! 🏆</h3>
+                                <p style="color: white !important; font-weight: bold; margin: 0;">El Gajo Dorado #100 ha sido activado por {nombre_sel}</p>
+                            </div>
+                        """, unsafe_allow_html=True)
         
         if resp := st.chat_input("Escribe tu respuesta aquí..."):
             TOKEN, PHONE_ID = st.secrets["WHATSAPP_TOKEN"], st.secrets["PHONE_ID"]
